@@ -29,21 +29,32 @@ class OpenAi(BaseLlm):
     def get_image_model(self):
         return self.image_model
 
-    def chat_completion(self, messages, max_tokens=get_config("MAX_MODEL_TOKEN_LIMIT")):
+    def chat_completion(self, messages, max_tokens=get_config("MAX_MODEL_TOKEN_LIMIT"), functions=None):
         try:
-            # openai.api_key = get_config("OPENAI_API_KEY")
-            response = openai.ChatCompletion.create(
-                n=self.number_of_results,
-                model=self.model,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=max_tokens,
-                top_p=self.top_p,
-                frequency_penalty=self.frequency_penalty,
-                presence_penalty=self.presence_penalty
-            )
+            openai.api_key = get_config("OPENAI_API_KEY")
+        
+            params = {
+                "n": self.number_of_results,
+                "model": self.model,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": max_tokens,
+                "top_p": self.top_p,
+                "frequency_penalty": self.frequency_penalty,
+                "presence_penalty": self.presence_penalty
+            }
+            
+            if self.model == "gpt-3.5-turbo-0613" and functions is not None:
+                params["functions"] = functions
+
+            response = openai.ChatCompletion.create(**params)
             content = response.choices[0].message["content"]
-            return {"response": response, "content": content}
+            
+            if self.model == "gpt-3.5-turbo-0613":
+                function_call = response.choices[0].message["function_call"]
+                return {"response": response, "content": content, "function_call": function_call}
+            else:
+                return {"response": response, "content": content}
         except Exception as exception:
             print("Exception:", exception)
             return {"error": exception}

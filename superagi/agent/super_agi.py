@@ -2,6 +2,7 @@
 # agent executes the master prompt along with long term memory
 # agent can run the task queue as well with long term memory
 from __future__ import annotations
+import json
 
 import time
 from typing import Any, Dict
@@ -154,10 +155,55 @@ class SuperAgi:
                 session.commit()
 
         current_tokens = TokenCounter.count_message_tokens(messages, self.llm.get_model())
-        response = self.llm.chat_completion(messages, token_limit - current_tokens)
+        test_functions = [
+            {
+                "name": "add_decimal_values",
+                "description": "Add two decimal values",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "value1": {
+                            "type": "integer",
+                            "description": "The first decimal value to add. For example, 5",
+                        },
+                        "value2": {
+                            "type": "integer",
+                            "description": "The second decimal value to add. For example, 10",
+                        },
+                    },
+                    "required": ["value1", "value2"],
+                },
+            },
+            {
+                "name": "add_hexadecimal_values",
+                "description": "Add two hexadecimal values",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "value1": {
+                            "type": "string",
+                            "description": "The first hexadecimal value to add. For example, 5",
+                        },
+                        "value2": {
+                            "type": "string",
+                            "description": "The second hexadecimal value to add. For example, A",
+                        },
+                    },
+                    "required": ["value1", "value2"],
+                },
+            },
+        ]
+        function_tokens = TokenCounter.count_text_tokens(json.dumps(test_functions))
+        print('==================function_tokens======================')
+        print(function_tokens)
+        response = self.llm.chat_completion(messages, token_limit - current_tokens, test_functions)
         current_calls = current_calls + 1
         total_tokens = current_tokens + TokenCounter.count_message_tokens(response, self.llm.get_model())
         self.update_agent_execution_tokens(current_calls, total_tokens)
+        
+        print('==================response======================')
+        print(response)
+        print('==================/response======================')
 
         if response['content'] is None:
             raise RuntimeError(f"Failed to get response from llm")
