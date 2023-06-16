@@ -155,48 +155,19 @@ class SuperAgi:
                 session.commit()
 
         current_tokens = TokenCounter.count_message_tokens(messages, self.llm.get_model())
-        test_functions = [
-            {
-                "name": "add_decimal_values",
-                "description": "Add two decimal values",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "value1": {
-                            "type": "integer",
-                            "description": "The first decimal value to add. For example, 5",
-                        },
-                        "value2": {
-                            "type": "integer",
-                            "description": "The second decimal value to add. For example, 10",
-                        },
-                    },
-                    "required": ["value1", "value2"],
-                },
-            },
-            {
-                "name": "add_hexadecimal_values",
-                "description": "Add two hexadecimal values",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "value1": {
-                            "type": "string",
-                            "description": "The first hexadecimal value to add. For example, 5",
-                        },
-                        "value2": {
-                            "type": "string",
-                            "description": "The second hexadecimal value to add. For example, A",
-                        },
-                    },
-                    "required": ["value1", "value2"],
-                },
-            },
-        ]
-        function_tokens = TokenCounter.count_text_tokens(json.dumps(test_functions))
-        print('==================function_tokens======================')
-        print(function_tokens)
-        response = self.llm.chat_completion(messages, token_limit - current_tokens, test_functions)
+
+        if self.llm.get_model() == "gpt-3.5-turbo-0613":
+            functions_list = self.generate_functions_list()
+            function_tokens = TokenCounter.count_text_tokens(json.dumps(functions_list))
+            max_tokens = token_limit - current_tokens - function_tokens
+        else:
+            functions_list = None
+            max_tokens = token_limit - current_tokens
+
+        print('==================messages======================')
+        print(messages)
+        print('==================/messages======================')
+        response = self.llm.chat_completion(messages, max_tokens, functions_list)
         current_calls = current_calls + 1
         total_tokens = current_tokens + TokenCounter.count_message_tokens(response, self.llm.get_model())
         self.update_agent_execution_tokens(current_calls, total_tokens)
@@ -206,8 +177,21 @@ class SuperAgi:
         print('==================/response======================')
 
         if response['content'] is None:
-            raise RuntimeError(f"Failed to get response from llm")
+            if self.llm.get_model() != "gpt-3.5-turbo-0613":
+                raise RuntimeError(f"Failed to get response from llm")
         assistant_reply = response['content']
+
+        if self.llm.get_model() == "gpt-3.5-turbo-0613":
+            assistant_function_call = response.get('function_call')
+            if assistant_function_call != None:
+                function_name = assistant_function_call['name']
+                if "_" in function_name:
+                    function_name = function_name.replace("_", " ")
+                    assistant_function_call['name'] = function_name
+                # and then we weave it back into the assistant reply pretend we didn't just use a new feature
+                if assistant_reply is None:
+                    assistant_reply = {}
+                assistant_reply['tool'] = assistant_function_call
 
         final_response = {"result": "PENDING", "retry": False}
 
@@ -265,6 +249,31 @@ class SuperAgi:
         session.close()
         return final_response
 
+    def generate_functions_list(self):
+        functions_list = []
+
+        for i, item in enumerate(self.tools):
+            item_dict = {
+                "name": item.name.replace(" ", "_"), 
+                "description": item.description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            }
+
+            for key, value in item.args.items():
+                prop_dict = {
+                    "type": value["type"],
+                    "description": value["description"]
+                }
+                item_dict["parameters"]["properties"][key] = prop_dict
+                item_dict["parameters"]["required"].append(key)
+
+            functions_list.append(item_dict)
+        return functions_list
+
     def handle_tool_response(self, assistant_reply):
         action = self.output_parser.parse(assistant_reply)
         tools = {t.name: t for t in self.tools}
@@ -317,8 +326,12 @@ class SuperAgi:
         add_finish_tool = True
         if len(pending_tasks) > 0 or len(completed_tasks) > 0:
             add_finish_tool = False
+        if self.llm.get_model() == "gpt-3.5-turbo-0613":
+            tools = []
+        else:
+            tools = self.tools
         prompt = AgentPromptBuilder.replace_main_variables(prompt, self.agent_config["goal"],
-                                                           self.agent_config["constraints"], self.tools, add_finish_tool)
+                                                           self.agent_config["constraints"], tools, add_finish_tool)
         response = task_queue.get_last_task_details()
 
         last_task = ""

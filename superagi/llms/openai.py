@@ -49,9 +49,9 @@ class OpenAi(BaseLlm):
 
             response = openai.ChatCompletion.create(**params)
             content = response.choices[0].message["content"]
-            
-            if self.model == "gpt-3.5-turbo-0613":
-                function_call = response.choices[0].message["function_call"]
+
+            if self.model == "gpt-3.5-turbo-0613" and functions is not None:
+                function_call = response.choices[0].message.get("function_call")
                 return {"response": response, "content": content, "function_call": function_call}
             else:
                 return {"response": response, "content": content}
